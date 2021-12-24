@@ -7,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 eframe = "0.15.0"
+toml = "0.5.8"
+serde = "1.0.132"
+serde_derive = "1.0.132"
 
 [profile.release]
 opt-level = 2
