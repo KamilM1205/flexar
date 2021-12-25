@@ -11,8 +11,13 @@ struct FlexApp {
     default_pas: String,
     pas_type: PasswordType,
     pas_len: u16,
+    pas_letters: bool,
+    pas_nums: bool,
+    pas_file: String,
+    con_photo: bool,
     reg_method: RegMethod,
     reg_num: u32,
+    reg_count: u32,
 }
 
 #[derive(Debug, PartialEq)]
@@ -46,8 +51,13 @@ impl Default for FlexApp {
             default_pas: String::from("Abcd5678"),
             pas_type: PasswordType::Generate,
             pas_len: 8,
+            pas_letters: true,
+            pas_nums: true,
+            pas_file: String::from("..."),
+            con_photo: true,
             reg_method: RegMethod::Phone,
             reg_num: 10,
+            reg_count: 0,
         }
     }
 }
@@ -155,12 +165,12 @@ impl epi::App for FlexApp {
                                     ui.checkbox(&mut self.proxy_use, "");
                                 });
                                 ui.horizontal(|ui| {
-                                    ui.label("Proxy url: ");
+                                    ui.label("Proxy file: ");
                                     ui.add_enabled(
-                                        self.proxy_use,
-                                        egui::TextEdit::singleline(&mut self.proxy_url)
-                                            .hint_text("Example: socks5://127.0.0.1:1086")
+                                        false,
+                                        egui::TextEdit::singleline(&mut self.proxy_url),
                                     );
+                                    ui.button("Select file");
                                 });
                             });
 
@@ -174,28 +184,40 @@ impl epi::App for FlexApp {
                                 if !self.use_custom_pas {
                                     ui.horizontal(|ui| {
                                         ui.label("Default: ");
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut self.default_pas)
-                                        );
+                                        ui.add(egui::TextEdit::singleline(&mut self.default_pas));
                                     });
                                 } else {
                                     ui.horizontal(|ui| {
                                         ui.label("Use: ");
-                                        ui.selectable_value(&mut self.pas_type, PasswordType::Generate, "Generate");
-                                        ui.selectable_value(&mut self.pas_type, PasswordType::FromFile, "From file");
+                                        ui.selectable_value(
+                                            &mut self.pas_type,
+                                            PasswordType::Generate,
+                                            "Generate",
+                                        );
+                                        ui.selectable_value(
+                                            &mut self.pas_type,
+                                            PasswordType::FromFile,
+                                            "From file",
+                                        );
+                                        todo!();
                                     });
 
                                     if let PasswordType::Generate = self.pas_type {
                                         ui.horizontal(|ui| {
-                                            ui.label("password length: ");
-                                            ui.add(
-                                                egui::DragValue::new(&mut self.pas_len)
-                                            );
+                                            ui.label("Password length: ");
+                                            ui.add(egui::DragValue::new(&mut self.pas_len));
                                         });
-                                        ui.horizontal(|ui| {});
-                                        ui.horizontal(|ui| {});
+                                        ui.horizontal(|ui| {
+                                            ui.label("Use capital letters: ");
+                                            ui.checkbox(&mut self.pas_letters, "");
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("Use numbers: ");
+                                            ui.checkbox(&mut self.pas_nums, "");
+                                        });
                                     } else {
-
+                                        ui.label(format!("File path: {}", self.pas_file));
+                                        ui.button("Select file");
                                     }
                                 }
                             });
@@ -203,7 +225,19 @@ impl epi::App for FlexApp {
                         egui::CollapsingHeader::new("Account content")
                             .default_open(false)
                             .show(ui, |ui| {
-                                ui.label("Some text");
+                                // use photo
+                                // use status
+                                // subscribe
+                                // posts
+                                ui.horizontal(|ui| {
+                                    ui.label("Use photo: ");
+                                    ui.checkbox(&mut self.con_photo, "");
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Status: ");
+                                    egui::ComboBox::from_id_source("accounts_status")
+                                        .show_ui(ui, |ui| {});
+                                });
                             });
 
                         ui.horizontal(|ui| {
@@ -211,8 +245,10 @@ impl epi::App for FlexApp {
                             ui.add(egui::DragValue::new(&mut self.reg_num));
                         });
 
-                        ui.button("Start");
-                        ui.button("Stop");
+                        ui.label(format!("Registered: {}", self.reg_count));
+
+                        ui.add(egui::Button::new("Start"));
+                        ui.add(egui::Button::new("Stop"));
                     },
                 );
             });
