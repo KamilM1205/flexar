@@ -6,7 +6,8 @@ struct FlexApp {
     about_w: bool,
     website: Website,
     proxy_use: bool,
-    proxy_url: String,
+    proxy_files: Vec<Proxy>,
+    proxy_sel: Proxy,
     use_custom_pas: bool,
     default_pas: String,
     pas_type: PasswordType,
@@ -34,6 +35,12 @@ enum RegMethod {
     Email,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum Proxy {
+    None,
+    File(String),
+}
+
 #[derive(Debug, PartialEq)]
 enum PasswordType {
     Generate,
@@ -46,7 +53,8 @@ impl Default for FlexApp {
             about_w: false,
             website: Website::VK,
             proxy_use: false,
-            proxy_url: String::new(),
+            proxy_files: vec![Proxy::None],
+            proxy_sel: Proxy::None,
             use_custom_pas: false,
             default_pas: String::from("Abcd5678"),
             pas_type: PasswordType::Generate,
@@ -166,11 +174,26 @@ impl epi::App for FlexApp {
                                 });
                                 ui.horizontal(|ui| {
                                     ui.label("Proxy file: ");
-                                    ui.add_enabled(
-                                        false,
-                                        egui::TextEdit::singleline(&mut self.proxy_url),
-                                    );
-                                    ui.button("Select file");
+                                    egui::ComboBox::from_id_source("proxy_file")
+                                        .selected_text(format!("{:?}", self.proxy_sel))
+                                        .show_ui(ui, |ui| {
+                                            for i in 0..self.proxy_files.len() {
+                                                if let Proxy::File(f) = self.proxy_files[i].clone()
+                                                {
+                                                    ui.selectable_value(
+                                                        &mut self.proxy_sel,
+                                                        self.proxy_files[i].clone(),
+                                                        f,
+                                                    );
+                                                } else {
+                                                    ui.selectable_value(
+                                                        &mut self.proxy_sel,
+                                                        Proxy::None,
+                                                        "None",
+                                                    );
+                                                }
+                                            }
+                                        });
                                 });
                             });
 
@@ -199,7 +222,6 @@ impl epi::App for FlexApp {
                                             PasswordType::FromFile,
                                             "From file",
                                         );
-                                        todo!();
                                     });
 
                                     if let PasswordType::Generate = self.pas_type {
