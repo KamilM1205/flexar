@@ -1,9 +1,10 @@
 use eframe::{egui, epi};
 
-mod about;
+mod dialogs;
 
 struct FlexApp {
     about_w: bool,
+    conf_dialog: dialogs::ConfigDialog,
     website: Website,
     proxy_use: bool,
     proxy_files: Vec<Proxy>,
@@ -14,11 +15,19 @@ struct FlexApp {
     pas_len: u16,
     pas_letters: bool,
     pas_nums: bool,
-    pas_file: String,
-    con_photo: bool,
+    pas_files: Vec<PasswordFile>,
+    pas_file: PasswordFile,
+    acc_photo: bool,
+    acc_status_files: Vec<StatusFile>,
+    acc_status_file: StatusFile,
+    acc_sub_files: Vec<SubscribeFile>,
+    acc_sub_file: SubscribeFile,
+    acc_posts_files: Vec<PostsFile>,
+    acc_posts_file: PostsFile,
     reg_method: RegMethod,
     reg_num: u32,
     reg_count: u32,
+    log: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,10 +56,35 @@ enum PasswordType {
     FromFile,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+enum PasswordFile {
+    None,
+    File(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum StatusFile {
+    None,
+    File(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum SubscribeFile {
+    None,
+    File(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PostsFile {
+    None,
+    File(String),
+}
+
 impl Default for FlexApp {
     fn default() -> Self {
         Self {
             about_w: false,
+            conf_dialog: dialogs::ConfigDialog::default(),
             website: Website::VK,
             proxy_use: false,
             proxy_files: vec![Proxy::None],
@@ -61,11 +95,19 @@ impl Default for FlexApp {
             pas_len: 8,
             pas_letters: true,
             pas_nums: true,
-            pas_file: String::from("..."),
-            con_photo: true,
+            pas_files: vec![PasswordFile::None],
+            pas_file: PasswordFile::None,
+            acc_photo: false,
+            acc_status_files: vec![StatusFile::None],
+            acc_status_file: StatusFile::None,
+            acc_sub_files: vec![SubscribeFile::None],
+            acc_sub_file: SubscribeFile::None,
+            acc_posts_files: vec![PostsFile::None],
+            acc_posts_file: PostsFile::None,
             reg_method: RegMethod::Phone,
             reg_num: 10,
             reg_count: 0,
+            log: String::from("Welcome to the FlexAR!"),
         }
     }
 }
@@ -98,7 +140,9 @@ impl epi::App for FlexApp {
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 egui::menu::menu(ui, "File", |ui| {
-                    if ui.button("Open").clicked() {};
+                    if ui.button("Open").clicked() {
+                        self.conf_dialog.open = true;
+                    };
                     if ui.button("Save").clicked() {};
                     if ui.button("Exit").clicked() {
                         frame.quit();
@@ -172,29 +216,32 @@ impl epi::App for FlexApp {
                                     ui.label("Use proxy: ");
                                     ui.checkbox(&mut self.proxy_use, "");
                                 });
-                                ui.horizontal(|ui| {
-                                    ui.label("Proxy file: ");
-                                    egui::ComboBox::from_id_source("proxy_file")
-                                        .selected_text(format!("{:?}", self.proxy_sel))
-                                        .show_ui(ui, |ui| {
-                                            for i in 0..self.proxy_files.len() {
-                                                if let Proxy::File(f) = self.proxy_files[i].clone()
-                                                {
-                                                    ui.selectable_value(
-                                                        &mut self.proxy_sel,
-                                                        self.proxy_files[i].clone(),
-                                                        f,
-                                                    );
-                                                } else {
-                                                    ui.selectable_value(
-                                                        &mut self.proxy_sel,
-                                                        Proxy::None,
-                                                        "None",
-                                                    );
+                                if self.proxy_use {
+                                    ui.horizontal(|ui| {
+                                        ui.label("Proxy file: ");
+                                        egui::ComboBox::from_id_source("proxy_file")
+                                            .selected_text(format!("{:?}", self.proxy_sel))
+                                            .show_ui(ui, |ui| {
+                                                for i in 0..self.proxy_files.len() {
+                                                    if let Proxy::File(f) =
+                                                        self.proxy_files[i].clone()
+                                                    {
+                                                        ui.selectable_value(
+                                                            &mut self.proxy_sel,
+                                                            self.proxy_files[i].clone(),
+                                                            f,
+                                                        );
+                                                    } else {
+                                                        ui.selectable_value(
+                                                            &mut self.proxy_sel,
+                                                            Proxy::None,
+                                                            "None",
+                                                        );
+                                                    }
                                                 }
-                                            }
-                                        });
-                                });
+                                            });
+                                    });
+                                }
                             });
 
                         egui::CollapsingHeader::new("Password")
@@ -238,8 +285,30 @@ impl epi::App for FlexApp {
                                             ui.checkbox(&mut self.pas_nums, "");
                                         });
                                     } else {
-                                        ui.label(format!("File path: {}", self.pas_file));
-                                        ui.button("Select file");
+                                        ui.horizontal(|ui| {
+                                            ui.label("File path: ");
+                                            egui::ComboBox::from_id_source("pas_file")
+                                                .selected_text(format!("{:?}", self.pas_file))
+                                                .show_ui(ui, |ui| {
+                                                    for i in 0..self.pas_files.len() {
+                                                        if let PasswordFile::File(f) =
+                                                            self.pas_files[i].clone()
+                                                        {
+                                                            ui.selectable_value(
+                                                                &mut self.pas_file,
+                                                                self.pas_files[i].clone(),
+                                                                format!("{:?}", f),
+                                                            );
+                                                        } else {
+                                                            ui.selectable_value(
+                                                                &mut self.pas_file,
+                                                                PasswordFile::None,
+                                                                "None",
+                                                            );
+                                                        }
+                                                    }
+                                                });
+                                        });
                                     }
                                 }
                             });
@@ -253,12 +322,97 @@ impl epi::App for FlexApp {
                                 // posts
                                 ui.horizontal(|ui| {
                                     ui.label("Use photo: ");
-                                    ui.checkbox(&mut self.con_photo, "");
+                                    ui.checkbox(&mut self.acc_photo, "");
                                 });
                                 ui.horizontal(|ui| {
                                     ui.label("Status: ");
+                                    let status =
+                                        if let StatusFile::File(f) = self.acc_status_file.clone() {
+                                            f
+                                        } else {
+                                            "None".to_owned()
+                                        };
                                     egui::ComboBox::from_id_source("accounts_status")
-                                        .show_ui(ui, |ui| {});
+                                        .selected_text(status)
+                                        .show_ui(ui, |ui| {
+                                            for i in 0..self.acc_status_files.len() {
+                                                if let StatusFile::File(f) =
+                                                    self.acc_status_files[i].clone()
+                                                {
+                                                    ui.selectable_value(
+                                                        &mut self.acc_status_file,
+                                                        self.acc_status_files[i].clone(),
+                                                        f,
+                                                    );
+                                                } else {
+                                                    ui.selectable_value(
+                                                        &mut self.acc_status_file,
+                                                        StatusFile::None,
+                                                        "None",
+                                                    );
+                                                }
+                                            }
+                                        });
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Subscribe: ");
+                                    let sub =
+                                        if let SubscribeFile::File(f) = self.acc_sub_file.clone() {
+                                            f
+                                        } else {
+                                            "None".to_owned()
+                                        };
+                                    egui::ComboBox::from_id_source("accounts_subscribe")
+                                        .selected_text(sub)
+                                        .show_ui(ui, |ui| {
+                                            for i in 0..self.acc_sub_files.len() {
+                                                if let SubscribeFile::File(f) =
+                                                    self.acc_sub_files[i].clone()
+                                                {
+                                                    ui.selectable_value(
+                                                        &mut self.acc_sub_file,
+                                                        self.acc_sub_files[i].clone(),
+                                                        f,
+                                                    );
+                                                } else {
+                                                    ui.selectable_value(
+                                                        &mut self.acc_sub_file,
+                                                        SubscribeFile::None,
+                                                        "None",
+                                                    );
+                                                }
+                                            }
+                                        });
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Posts: ");
+                                    let posts =
+                                        if let PostsFile::File(f) = self.acc_posts_file.clone() {
+                                            f
+                                        } else {
+                                            "None".to_owned()
+                                        };
+                                    egui::ComboBox::from_id_source("accounts_posts")
+                                        .selected_text(posts)
+                                        .show_ui(ui, |ui| {
+                                            for i in 0..self.acc_posts_files.len() {
+                                                if let PostsFile::File(f) =
+                                                    self.acc_posts_files[i].clone()
+                                                {
+                                                    ui.selectable_value(
+                                                        &mut self.acc_posts_file,
+                                                        self.acc_posts_files[i].clone(),
+                                                        f,
+                                                    );
+                                                } else {
+                                                    ui.selectable_value(
+                                                        &mut self.acc_posts_file,
+                                                        PostsFile::None,
+                                                        "None",
+                                                    );
+                                                }
+                                            }
+                                        });
                                 });
                             });
 
@@ -269,6 +423,8 @@ impl epi::App for FlexApp {
 
                         ui.label(format!("Registered: {}", self.reg_count));
 
+                        ui.add_enabled(false, egui::TextEdit::multiline(&mut self.log));
+
                         ui.add(egui::Button::new("Start"));
                         ui.add(egui::Button::new("Stop"));
                     },
@@ -277,8 +433,9 @@ impl epi::App for FlexApp {
         });
 
         if self.about_w {
-            about::show(ctx, &mut self.about_w);
+            dialogs::about(ctx, &mut self.about_w);
         }
+        self.conf_dialog.show_open(ctx);
     }
 }
 
