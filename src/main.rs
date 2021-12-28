@@ -1,83 +1,15 @@
 use eframe::{egui, epi};
 
 mod dialogs;
+mod config;
 
 struct FlexApp {
     about_w: bool,
     conf_dialog: dialogs::ConfigDialog,
-    website: Website,
-    proxy_use: bool,
-    proxy_files: Vec<Proxy>,
-    proxy_sel: Proxy,
-    use_custom_pas: bool,
-    default_pas: String,
-    pas_type: PasswordType,
-    pas_len: u16,
-    pas_letters: bool,
-    pas_nums: bool,
-    pas_files: Vec<PasswordFile>,
-    pas_file: PasswordFile,
-    acc_photo: bool,
-    acc_status_files: Vec<StatusFile>,
-    acc_status_file: StatusFile,
-    acc_sub_files: Vec<SubscribeFile>,
-    acc_sub_file: SubscribeFile,
-    acc_posts_files: Vec<PostsFile>,
-    acc_posts_file: PostsFile,
-    reg_method: RegMethod,
-    reg_num: u32,
+    config_file: config::Config,
+    
     reg_count: u32,
     log: String,
-}
-
-#[derive(Debug, PartialEq)]
-enum Website {
-    VK,
-    Instagram,
-    Twitter,
-    Other(String),
-}
-
-#[derive(Debug, PartialEq)]
-enum RegMethod {
-    Phone,
-    Email,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum Proxy {
-    None,
-    File(String),
-}
-
-#[derive(Debug, PartialEq)]
-enum PasswordType {
-    Generate,
-    FromFile,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum PasswordFile {
-    None,
-    File(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum StatusFile {
-    None,
-    File(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum SubscribeFile {
-    None,
-    File(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum PostsFile {
-    None,
-    File(String),
 }
 
 impl Default for FlexApp {
@@ -85,29 +17,8 @@ impl Default for FlexApp {
         Self {
             about_w: false,
             conf_dialog: dialogs::ConfigDialog::default(),
-            website: Website::VK,
-            proxy_use: false,
-            proxy_files: vec![Proxy::None],
-            proxy_sel: Proxy::None,
-            use_custom_pas: false,
-            default_pas: String::from("Abcd5678"),
-            pas_type: PasswordType::Generate,
-            pas_len: 8,
-            pas_letters: true,
-            pas_nums: true,
-            pas_files: vec![PasswordFile::None],
-            pas_file: PasswordFile::None,
-            acc_photo: false,
-            acc_status_files: vec![StatusFile::None],
-            acc_status_file: StatusFile::None,
-            acc_sub_files: vec![SubscribeFile::None],
-            acc_sub_file: SubscribeFile::None,
-            acc_posts_files: vec![PostsFile::None],
-            acc_posts_file: PostsFile::None,
-            reg_method: RegMethod::Phone,
-            reg_num: 10,
             reg_count: 0,
-            log: String::from("Welcome to the FlexAR!"),
+            log: String::from("Welcome to the FlexAR!\n"),
         }
     }
 }
@@ -134,6 +45,12 @@ impl epi::App for FlexApp {
             .unwrap()
             .insert(0, "font".to_owned());
         ctx.set_fonts(font);
+
+        let mut style = egui::Style::default();
+        let mut spacing = egui::style::Spacing::default();
+        spacing.item_spacing = egui::vec2(2., 5.);
+        style.spacing = spacing;
+        ctx.set_style(style);
     }
 
     fn update(&mut self, ctx: &egui::CtxRef, frame: &mut epi::Frame<'_>) {
@@ -143,7 +60,9 @@ impl epi::App for FlexApp {
                     if ui.button("Open").clicked() {
                         self.conf_dialog.open = true;
                     };
-                    if ui.button("Save").clicked() {};
+                    if ui.button("Save").clicked() {
+                        self.conf_dialog.save = true;
+                    };
                     if ui.button("Exit").clicked() {
                         frame.quit();
                     };
@@ -423,7 +342,11 @@ impl epi::App for FlexApp {
 
                         ui.label(format!("Registered: {}", self.reg_count));
 
-                        ui.add_enabled(false, egui::TextEdit::multiline(&mut self.log));
+                        egui::ScrollArea::vertical()
+                            .max_height(120.)
+                            .show(ui, |ui| {
+                                ui.add_enabled(false, egui::TextEdit::multiline(&mut self.log));
+                            });
 
                         ui.add(egui::Button::new("Start"));
                         ui.add(egui::Button::new("Stop"));
@@ -435,7 +358,8 @@ impl epi::App for FlexApp {
         if self.about_w {
             dialogs::about(ctx, &mut self.about_w);
         }
-        self.conf_dialog.show_open(ctx);
+        self.conf_dialog.show_open(ctx, &mut self.log);
+        self.conf_dialog.show_save(ctx, &mut self.log);
     }
 }
 
