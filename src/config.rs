@@ -1,7 +1,7 @@
-use serde_derive::{Serialize, Deserialize};
+use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-enum Website {
+pub enum Website {
     VK,
     Instagram,
     Twitter,
@@ -9,43 +9,43 @@ enum Website {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-enum RegMethod {
+pub enum RegMethod {
     Phone,
     Email,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum Proxy {
+pub enum Proxy {
     None,
     File(String),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-enum PasswordType {
+pub enum PasswordType {
     Generate,
     FromFile,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum PasswordFile {
+pub enum PasswordFile {
     None,
     File(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum StatusFile {
+pub enum StatusFile {
     None,
     File(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum SubscribeFile {
+pub enum SubscribeFile {
     None,
     File(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum PostsFile {
+pub enum PostsFile {
     None,
     File(String),
 }
@@ -104,65 +104,84 @@ impl Default for Config {
 }
 
 impl Config {
-    fn load(filename: String, log: &mut String) -> Config {
+    pub fn load(filename: &String, log: &mut String) -> Config {
         let mut path = dirs::config_dir().unwrap();
-        path.push(std::path::PathBuf::from("flexar/configs/".to_owned() + &filename));
-        path.set_extension(".toml");
-        if !path.exists() {
-            match std::fs::create_dir_all(path) {
-                Err(e) => log.push_str(&format!("{:?}", e))
-            }
-            let data = match toml::to_string(&Config::default()) {
-                Ok(d) => d,
-                Err(e) => {log.push_str(&format!("{:?}", e)); "".to_owned()}
-            };
-            match std::fs::write(path, data) {
-                Ok(_) => (),
-                Err(e) => log.push_str(&format!("{:?}", e)),
-            };
-        }
+        path.push(std::path::PathBuf::from(
+            "flexar/configs/".to_owned() + &filename,
+        ));
+        path.set_extension("toml");
         let data = match std::fs::read_to_string(path) {
             Ok(e) => e,
-            Err(e) => {log.push_str(&format!("{:?}", e)); "".to_owned()},
+            Err(e) => {
+                log.push_str(&format!("{:?}\n", e));
+                "".to_owned()
+            }
         };
         let decode: Config = match toml::from_str(&data) {
             Ok(e) => e,
-            Err(e) => { log.push_str(&format!("{:?}", e)); Config::default() }
+            Err(e) => {
+                log.push_str(&format!("{:?}\n", e));
+                Config::default()
+            }
         };
 
         decode
     }
 
-    fn get_list(log: &mut String) -> Vec<String> {
+    pub fn get_list(log: &mut String) -> Vec<String> {
         let mut path = dirs::config_dir().unwrap();
         path.push(std::path::PathBuf::from("flexar/configs/".to_owned()));
+        if !path.exists() {
+            match std::fs::create_dir_all(&path) {
+                Ok(_) => (),
+                Err(e) => log.push_str(&format!("{:?}\n", e)),
+            }
+        }
         let files = match path.read_dir() {
             Ok(e) => Some(e),
-            Err(e) => {log.push_str(&format!("{:?}", e)); None}
+            Err(e) => {
+                log.push_str(&format!("{:?}\n", e));
+                None
+            }
         };
 
-        if let Some(files) = files {
-            files.map(|f| {
-                let f = match f {
-                    Ok(f) => Some(f),
-                    Err(e) => {log.push_str(&format!("{:?}", e)); None}
-                };
-                if let Some(f) = f {
-                    if f.file_type().unwrap().is_file() {
-                        let mut path = std::path::PathBuf::from(f.file_name());
-                        let ext = path.extension();
-                        if let Some(e) = ext {
-                            if e == "toml" {
-                                path.set_extension("");
-                                return path.to_str().unwrap()
+        let mut file: Vec<String> = Vec::new();
+        if let Some(entries) = files {
+            for e in entries {
+                if let Ok(entry) = e {
+                    let mut path = entry.path();
+                    if let Ok(ftype) = entry.file_type() {
+                        if ftype.is_file() == true {
+                            if let Some(ext) = path.extension() {
+                                if ext == "toml" {
+                                    path.set_extension("");
+                                    file.push(String::from(path.file_name().unwrap().to_str().unwrap()));
+                                }
                             }
                         }
                     }
                 }
-            }).collect();
+            }
         }
-
-        return vec![];
+        file
     }
-    fn save(&mut self, filename: String, log: &mut String) {}
+
+    pub fn save(&mut self, filename: &String, log: &mut String) {
+        let mut path = dirs::config_dir().unwrap();
+        path.push(std::path::PathBuf::from(
+            "flexar/configs/".to_owned() + &filename,
+        ));
+        path.set_extension("toml");
+        let data = match toml::to_vec(&self) {
+            Ok(d) => d,
+            Err(e) => {
+                log.push_str(&format!("{:?}\n", e));
+                vec![]
+            }
+        };
+        match std::fs::write(path, data) {
+            Ok(_) => (),
+            Err(e) => log.push_str(&format!("{:?}\n", e)),
+        };
+    }
 }

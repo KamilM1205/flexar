@@ -1,0 +1,6 @@
+name = "VK"
+use_photo = true
+use_status_files = true
+use_subscribes_files = true
+use_posts_files = true
+reg_methods = ["Phone"]

@@ -11,6 +11,7 @@ toml = "0.5.8"
 dirs = "4.0.0"
 serde = "1.0.132"
 serde_derive = "1.0.132"
+include_dir = "0.7.2"
 
 [profile.release]
 opt-level = 2

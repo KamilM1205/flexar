@@ -1,3 +1,5 @@
+use crate::config;
+
 pub fn about(ctx: &eframe::egui::CtxRef, open: &mut bool) {
     eframe::egui::Window::new("About")
         .open(open)
@@ -37,7 +39,19 @@ impl Default for ConfigDialog {
 }
 
 impl ConfigDialog {
-    pub fn show_save(&mut self, ctx: &eframe::egui::CtxRef, log: &mut String) {
+    pub fn load(&mut self, log: &mut String) {
+        let files = config::Config::get_list(log);
+        for f in files {
+            self.files.push(ConfigSelect::File(f.clone()));
+        }
+    }
+
+    pub fn show_save(
+        &mut self,
+        ctx: &eframe::egui::CtxRef,
+        conf: &mut config::Config,
+        log: &mut String,
+    ) {
         if self.close_save {
             self.close_save = false;
             self.save = false;
@@ -54,6 +68,7 @@ impl ConfigDialog {
                             |ui| {
                                 if ui.button("Save").clicked() && self.save_name != "" {
                                     self.close_save = true;
+                                    conf.save(&self.save_name, log);
                                     log.push_str(&format!(
                                         "Config file {} was saved.\n",
                                         self.save_name
@@ -71,11 +86,12 @@ impl ConfigDialog {
                 });
         }
     }
-    pub fn show_open(&mut self, ctx: &eframe::egui::CtxRef, log: &mut String) {
+    pub fn show_open(&mut self, ctx: &eframe::egui::CtxRef, log: &mut String) -> Option<config::Config> {
         if self.close_open {
             self.close_open = false;
             self.open = false;
         }
+        let mut conf: Option<config::Config> = None;
         if self.open {
             eframe::egui::Window::new("Open config file")
                 .open(&mut self.open)
@@ -89,6 +105,10 @@ impl ConfigDialog {
                                 if ui.button("Open").clicked() {
                                     if let ConfigSelect::File(_) = self.file {
                                         self.close_open = true;
+                                        if let ConfigSelect::File(f) = self.file.clone() {
+                                            self.save_name = f;
+                                        }
+                                        conf = Some(config::Config::load(&self.save_name, log));
                                         log.push_str(&format!(
                                             "Config file {} was loaded.\n",
                                             self.save_name
@@ -101,8 +121,13 @@ impl ConfigDialog {
                     eframe::egui::TopBottomPanel::top("open_top").show_inside(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Select file: ");
+                            let fname = if let ConfigSelect::File(f) = self.file.clone() {
+                                f
+                            } else {
+                                "None".to_owned()
+                            };
                             eframe::egui::ComboBox::from_id_source("select config")
-                                .selected_text(format!("{:?}", self.file))
+                                .selected_text(format!("{}", fname))
                                 .show_ui(ui, |ui| {
                                     for i in 0..self.files.len() {
                                         let fname = if let ConfigSelect::File(fname) =
@@ -112,7 +137,7 @@ impl ConfigDialog {
                                         } else {
                                             "None".to_owned()
                                         };
-                                        if let ConfigSelect::File(f) = self.files[i].clone() {
+                                        if let ConfigSelect::File(_) = self.files[i].clone() {
                                             ui.selectable_value(
                                                 &mut self.file,
                                                 self.files[i].clone(),
@@ -131,5 +156,6 @@ impl ConfigDialog {
                     });
                 });
         }
+        conf
     }
 }
