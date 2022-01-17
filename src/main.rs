@@ -8,6 +8,7 @@ struct FlexApp {
     about_w: bool,
     conf_dialog: dialogs::ConfigDialog,
     config_file: config::Config,
+    plugin_tx: Option<std::sync::mpsc::Sender<plugin::PluginCommands>>,
     reg_count: u32,
     log: String,
 }
@@ -18,6 +19,7 @@ impl Default for FlexApp {
             about_w: false,
             conf_dialog: dialogs::ConfigDialog::default(),
             config_file: config::Config::default(),
+            plugin_tx: None,
             reg_count: 0,
             log: String::from("Welcome to the FlexAR!\n"),
         }
@@ -32,16 +34,33 @@ impl epi::App for FlexApp {
     fn setup(
         &mut self,
         ctx: &egui::CtxRef,
-        _frame: &mut epi::Frame<'_>,
+        _frame: &epi::Frame,
         _storage: Option<&dyn epi::Storage>,
     ) {
         self.conf_dialog.load(&mut self.log);
+
+        plugin::get_list(&mut self.log);
+        let mut pl = plugin::Plugin::default();
+        self.plugin_tx = Some(pl.get_tx());
+        std::thread::spawn(move || {
+            pl.start_thread();
+        });
+        let src = plugin::Plugin::load_plugin(
+            self.plugin_tx.clone().unwrap(),
+            "vk".to_owned(),
+            &mut self.log,
+        );
+        self.plugin_tx
+            .clone()
+            .unwrap()
+            .send(plugin::PluginCommands::LOAD(src))
+            .unwrap();
 
         let mut font = egui::FontDefinitions::default();
 
         font.font_data.insert(
             "font".to_owned(),
-            std::borrow::Cow::Borrowed(include_bytes!("../assets/font.ttf")),
+            egui::FontData::from_static(include_bytes!("../assets/font.ttf")),
         );
         font.fonts_for_family
             .get_mut(&egui::FontFamily::Proportional)
@@ -56,10 +75,10 @@ impl epi::App for FlexApp {
         ctx.set_style(style);
     }
 
-    fn update(&mut self, ctx: &egui::CtxRef, frame: &mut epi::Frame<'_>) {
+    fn update(&mut self, ctx: &egui::CtxRef, frame: &epi::Frame) {
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                egui::menu::menu(ui, "File", |ui| {
+                ui.menu_button("File", |ui| {
                     if ui.button("Open").clicked() {
                         self.conf_dialog.open = true;
                     };
@@ -99,7 +118,11 @@ impl epi::App for FlexApp {
                             egui::ComboBox::from_id_source("Website sel")
                                 .selected_text(format!("{:?}", self.config_file.website))
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut self.config_file.website, config::Website::VK, "VK");
+                                    ui.selectable_value(
+                                        &mut self.config_file.website,
+                                        config::Website::VK,
+                                        "VK",
+                                    );
                                     ui.selectable_value(
                                         &mut self.config_file.website,
                                         config::Website::Instagram,
@@ -142,7 +165,10 @@ impl epi::App for FlexApp {
                                     ui.horizontal(|ui| {
                                         ui.label("Proxy file: ");
                                         egui::ComboBox::from_id_source("proxy_file")
-                                            .selected_text(format!("{:?}", self.config_file.proxy_sel))
+                                            .selected_text(format!(
+                                                "{:?}",
+                                                self.config_file.proxy_sel
+                                            ))
                                             .show_ui(ui, |ui| {
                                                 for i in 0..self.config_file.proxy_files.len() {
                                                     if let config::Proxy::File(f) =
@@ -176,7 +202,9 @@ impl epi::App for FlexApp {
                                 if !self.config_file.use_custom_pas {
                                     ui.horizontal(|ui| {
                                         ui.label("Default: ");
-                                        ui.add(egui::TextEdit::singleline(&mut self.config_file.default_pas));
+                                        ui.add(egui::TextEdit::singleline(
+                                            &mut self.config_file.default_pas,
+                                        ));
                                     });
                                 } else {
                                     ui.horizontal(|ui| {
@@ -193,10 +221,14 @@ impl epi::App for FlexApp {
                                         );
                                     });
 
-                                    if let config::PasswordType::Generate = self.config_file.pas_type {
+                                    if let config::PasswordType::Generate =
+                                        self.config_file.pas_type
+                                    {
                                         ui.horizontal(|ui| {
                                             ui.label("Password length: ");
-                                            ui.add(egui::DragValue::new(&mut self.config_file.pas_len));
+                                            ui.add(egui::DragValue::new(
+                                                &mut self.config_file.pas_len,
+                                            ));
                                         });
                                         ui.horizontal(|ui| {
                                             ui.label("Use capital letters: ");
@@ -210,7 +242,10 @@ impl epi::App for FlexApp {
                                         ui.horizontal(|ui| {
                                             ui.label("File path: ");
                                             egui::ComboBox::from_id_source("pas_file")
-                                                .selected_text(format!("{:?}", self.config_file.pas_file))
+                                                .selected_text(format!(
+                                                    "{:?}",
+                                                    self.config_file.pas_file
+                                                ))
                                                 .show_ui(ui, |ui| {
                                                     for i in 0..self.config_file.pas_files.len() {
                                                         if let config::PasswordFile::File(f) =
@@ -218,7 +253,8 @@ impl epi::App for FlexApp {
                                                         {
                                                             ui.selectable_value(
                                                                 &mut self.config_file.pas_file,
-                                                                self.config_file.pas_files[i].clone(),
+                                                                self.config_file.pas_files[i]
+                                                                    .clone(),
                                                                 format!("{:?}", f),
                                                             );
                                                         } else {
@@ -248,12 +284,13 @@ impl epi::App for FlexApp {
                                 });
                                 ui.horizontal(|ui| {
                                     ui.label("Status: ");
-                                    let status =
-                                        if let config::StatusFile::File(f) = self.config_file.acc_status_file.clone() {
-                                            f
-                                        } else {
-                                            "None".to_owned()
-                                        };
+                                    let status = if let config::StatusFile::File(f) =
+                                        self.config_file.acc_status_file.clone()
+                                    {
+                                        f
+                                    } else {
+                                        "None".to_owned()
+                                    };
                                     egui::ComboBox::from_id_source("accounts_status")
                                         .selected_text(status)
                                         .show_ui(ui, |ui| {
@@ -263,7 +300,8 @@ impl epi::App for FlexApp {
                                                 {
                                                     ui.selectable_value(
                                                         &mut self.config_file.acc_status_file,
-                                                        self.config_file.acc_status_files[i].clone(),
+                                                        self.config_file.acc_status_files[i]
+                                                            .clone(),
                                                         f,
                                                     );
                                                 } else {
@@ -278,12 +316,13 @@ impl epi::App for FlexApp {
                                 });
                                 ui.horizontal(|ui| {
                                     ui.label("Subscribe: ");
-                                    let sub =
-                                        if let config::SubscribeFile::File(f) = self.config_file.acc_sub_file.clone() {
-                                            f
-                                        } else {
-                                            "None".to_owned()
-                                        };
+                                    let sub = if let config::SubscribeFile::File(f) =
+                                        self.config_file.acc_sub_file.clone()
+                                    {
+                                        f
+                                    } else {
+                                        "None".to_owned()
+                                    };
                                     egui::ComboBox::from_id_source("accounts_subscribe")
                                         .selected_text(sub)
                                         .show_ui(ui, |ui| {
@@ -308,12 +347,13 @@ impl epi::App for FlexApp {
                                 });
                                 ui.horizontal(|ui| {
                                     ui.label("Posts: ");
-                                    let posts =
-                                        if let config::PostsFile::File(f) = self.config_file.acc_posts_file.clone() {
-                                            f
-                                        } else {
-                                            "None".to_owned()
-                                        };
+                                    let posts = if let config::PostsFile::File(f) =
+                                        self.config_file.acc_posts_file.clone()
+                                    {
+                                        f
+                                    } else {
+                                        "None".to_owned()
+                                    };
                                     egui::ComboBox::from_id_source("accounts_posts")
                                         .selected_text(posts)
                                         .show_ui(ui, |ui| {
@@ -365,7 +405,8 @@ impl epi::App for FlexApp {
         if let Some(c) = open {
             self.config_file = c;
         }
-        self.conf_dialog.show_save(ctx, &mut self.config_file, &mut self.log);
+        self.conf_dialog
+            .show_save(ctx, &mut self.config_file, &mut self.log);
     }
 }
 
