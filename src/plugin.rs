@@ -2,7 +2,7 @@ use crate::config::RegMethod;
 
 use eframe::egui::{self, Ui};
 use include_dir::DirEntry::{Dir, File};
-use rlua::{Function, Lua, StdLib};
+use mlua::{Chunk, Lua, LuaOptions, StdLib, Table};
 
 use std::{
     io::{Read, Write},
@@ -29,10 +29,13 @@ pub enum PluginCommands {
 
 pub struct Plugin {
     src: Option<String>,
+    name: String,
     rx: std::sync::mpsc::Receiver<PluginCommands>,
     tx: std::sync::mpsc::Sender<PluginCommands>,
     thread: Option<JoinHandle<()>>,
     error_message: String,
+    plugin: Option<Chunk>,
+    globals: Option<Table>
 }
 
 impl Default for Plugin {
@@ -40,20 +43,18 @@ impl Default for Plugin {
         let (tx, rx) = std::sync::mpsc::channel();
         Self {
             src: None,
+            name: String::new(),
             rx,
             tx,
             thread: None,
             error_message: String::new(),
+            plugin: None,
         }
     }
 }
 
 impl Plugin {
-    pub fn load_plugin(
-        tx: std::sync::mpsc::Sender<PluginCommands>,
-        plugin_name: String,
-        log: &mut String,
-    ) -> String {
+    pub fn load_plugin(self, tx: std::sync::mpsc::Sender<PluginCommands>, plugin_name: String) {
         let mut path = dirs::config_dir().unwrap();
         path.push("flexar/plugins/".to_owned());
         path.push(plugin_name);
@@ -74,49 +75,37 @@ impl Plugin {
             }
         }
 
-        src
+        self.name = plugin_name;
+        self.src = src;
     }
 
     pub fn start_thread(&mut self) {
         let plugin = Lua::new_with(
-            StdLib::BASE & StdLib::UTF8 & StdLib::TABLE & StdLib::STRING & StdLib::MATH,
-        );
-        plugin.context(|mut ctx| loop {
+            StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8,
+            LuaOptions::default(),
+        )
+        .unwrap();
+
+        loop {
             let cmd = self.rx.recv().unwrap();
 
             match cmd {
                 PluginCommands::LOAD(src) => {
                     self.src = Some(src);
-                    self.load_lua(&mut ctx)
+                    self.load_lua(plugin)
                 }
                 PluginCommands::UI => (),
                 PluginCommands::QUIT => break,
             }
-        });
+        }
     }
 
-    fn load_lua(&mut self, ctx: &mut rlua::Context) {
-        let globals = ctx.globals();
-        match &mut self.src {
-            Some(src) => {
-                let chunk = ctx.load(&src);
-                let f: Result<Function, rlua::Error> = globals.get("load");
-                match f {
-                    Ok(f) => match f.call::<_, ()>(()) {
-                        Ok(_) => (),
-                        Err(e) => {
-                            &self.error(e);
-                            ()
-                        }
-                    },
-                    Err(e) => {
-                        &self.error(e);
-                        ()
-                    }
-                };
-                chunk.exec();
-            }
-            None => (),
+    fn load_lua(&mut self, lua: Lua) {
+        let chunk = lua.load(&self.src);
+        let 
+        match chunk.exec() {
+            Ok(_) => (),
+            Err(e) => self.error(e),
         }
     }
 
@@ -124,7 +113,7 @@ impl Plugin {
     where
         T: std::fmt::Debug,
     {
-        self.error_message.push_str(&format!("{:?}", err));
+        self.error_message.push_str(&format!("{}", err));
     }
 
     /*pub fn load(&mut self, tx: std::sync::mpsc::Sender<PluginCommands>, log: &mut String) {
