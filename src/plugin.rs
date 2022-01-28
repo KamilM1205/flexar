@@ -2,11 +2,11 @@ use crate::config::RegMethod;
 
 use eframe::egui::{self, Ui};
 use include_dir::DirEntry::{Dir, File};
-use mlua::{Chunk, Lua, LuaOptions, StdLib, Table};
+use mlua::{Lua, LuaOptions, StdLib};
 
 use std::{
     io::{Read, Write},
-    thread::JoinHandle,
+    sync::mpsc::{channel, Receiver, Sender},
 };
 
 pub static PLUGINS: include_dir::Dir =
@@ -24,132 +24,105 @@ struct Config {
 pub enum PluginCommands {
     LOAD(String),
     UI,
+    EXEC,
+    ERROR,
     QUIT,
 }
 
 pub struct Plugin {
-    src: Option<String>,
-    name: String,
-    rx: std::sync::mpsc::Receiver<PluginCommands>,
-    tx: std::sync::mpsc::Sender<PluginCommands>,
-    thread: Option<JoinHandle<()>>,
-    error_message: String,
-    plugin: Option<Chunk>,
-    globals: Option<Table>
+    tx: Option<Sender<PluginCommands>>,
+    erx: Option<Receiver<String>>,
+    etx: Option<Sender<PluginCommands>>,
+}
+
+struct PluginThread {
+    tx: Option<Sender<PluginCommands>>,
+    etx: Option<Sender<String>>,
 }
 
 impl Default for Plugin {
     fn default() -> Self {
-        let (tx, rx) = std::sync::mpsc::channel();
         Self {
-            src: None,
-            name: String::new(),
-            rx,
-            tx,
-            thread: None,
-            error_message: String::new(),
-            plugin: None,
+            tx: None,
+            erx: None,
+            etx: None,
         }
     }
 }
 
 impl Plugin {
-    pub fn load_plugin(self, tx: std::sync::mpsc::Sender<PluginCommands>, plugin_name: String) {
+    pub fn run_thread(&mut self) {
+        let (tx, rx) = channel::<String>();
+        self.erx = Some(rx);
+        let mut thread = PluginThread::new();
+        
+        let (tx, rx) = channel::<PluginCommands>();
+        self.tx = Some(tx);
+        
+        std::thread::spawn(move || {
+            thread.run_thread(rx);
+        });
+    }
+
+    pub fn get_error(&self) -> String {
+        self.etx.unwrap().send(PluginCommands::ERROR).unwrap();
+        let error = self.erx.clone().unwrap().recv().unwrap();
+        error
+    }
+}
+
+impl PluginThread {
+    pub fn new() -> Self {
+        Self {
+            tx: None,
+            etx: None,
+        }
+    }
+
+    fn load_plugin(&mut self, name: String) -> Result<String, std::io::Error> {
         let mut path = dirs::config_dir().unwrap();
-        path.push("flexar/plugins/".to_owned());
-        path.push(plugin_name);
+        path.push(name);
         path.push("plugin.lua");
+        let mut file = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => return Err(e),
+        };
 
         let mut src = String::new();
-        match std::fs::File::open(path) {
-            Ok(mut f) => match f.read_to_string(&mut src) {
-                Ok(_) => (),
-                Err(e) => {
-                    log.push_str(&format!("{:?}", e));
-                    return "".to_owned();
-                }
-            },
-            Err(e) => {
-                log.push_str(&format!("{:?}", e));
-                return "".to_owned();
-            }
-        }
 
-        self.name = plugin_name;
-        self.src = src;
-    }
-
-    pub fn start_thread(&mut self) {
-        let plugin = Lua::new_with(
-            StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8,
-            LuaOptions::default(),
-        )
-        .unwrap();
-
-        loop {
-            let cmd = self.rx.recv().unwrap();
-
-            match cmd {
-                PluginCommands::LOAD(src) => {
-                    self.src = Some(src);
-                    self.load_lua(plugin)
-                }
-                PluginCommands::UI => (),
-                PluginCommands::QUIT => break,
-            }
-        }
-    }
-
-    fn load_lua(&mut self, lua: Lua) {
-        let chunk = lua.load(&self.src);
-        let 
-        match chunk.exec() {
+        match file.read_to_string(&mut src) {
             Ok(_) => (),
-            Err(e) => self.error(e),
-        }
-    }
-
-    fn error<T>(&mut self, err: T)
-    where
-        T: std::fmt::Debug,
-    {
-        self.error_message.push_str(&format!("{}", err));
-    }
-
-    /*pub fn load(&mut self, tx: std::sync::mpsc::Sender<PluginCommands>, log: &mut String) {
-        match tx.send(PluginCommands::LOAD) {
-            Ok(_) => (),
-            Err(e) => log.push_str(&format!("{:?}", e)),
-        }
-    }*/
-
-    pub fn draw_ui(
-        &mut self,
-        tx: std::sync::mpsc::Sender<PluginCommands>,
-        ui: &mut Ui,
-        log: &mut String,
-    ) {
-        match tx.send(PluginCommands::UI) {
-            Ok(_) => (),
-            Err(e) => {
-                log.push_str(&format!("{:?}", e));
-                return;
-            }
+            Err(e) => return Err(e),
         };
+
+        Ok(src.clone())
     }
 
-    pub fn get_tx(&self) -> std::sync::mpsc::Sender<PluginCommands> {
-        self.tx.clone()
+    pub fn run_thread(&mut self, rx: Receiver<PluginCommands>) {
+        let lua = Lua::new_with(
+            StdLib::MATH | StdLib::STRING | StdLib::TABLE | StdLib::UTF8 | StdLib::PACKAGE,
+            LuaOptions::default(),
+        ).unwrap();
+
+        match rx.recv() {
+            Ok(pc) => match pc {
+                PluginCommands::LOAD(name) => {
+                    let src = match self.load_plugin(name) {
+                        Ok(s) => s,
+                        Err(e) => String::new(),
+                    };
+                    lua.load(&src).exec().unwrap();
+                }
+                PluginCommands::UI => {}
+                PluginCommands::EXEC => {}
+                PluginCommands::QUIT => {}
+            },
+            Err(e) => panic!("{:?}", e),
+        }
     }
 
-    pub fn stop_thread(&mut self, tx: std::sync::mpsc::Sender<PluginCommands>) {
-        tx.send(PluginCommands::QUIT).unwrap();
-        /*match self.thread {
-            Some(t) => {
-                t.join();
-            }
-            None => (),
-        }*/
+    pub fn get_tx(&self) -> Sender<PluginCommands> {
+        self.tx.clone().unwrap()
     }
 }
 

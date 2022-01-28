@@ -8,7 +8,6 @@ struct FlexApp {
     about_w: bool,
     conf_dialog: dialogs::ConfigDialog,
     config_file: config::Config,
-    plugin_tx: Option<std::sync::mpsc::Sender<plugin::PluginCommands>>,
     reg_count: u32,
     log: String,
 }
@@ -19,7 +18,6 @@ impl Default for FlexApp {
             about_w: false,
             conf_dialog: dialogs::ConfigDialog::default(),
             config_file: config::Config::default(),
-            plugin_tx: None,
             reg_count: 0,
             log: String::from("Welcome to the FlexAR!\n"),
         }
@@ -40,21 +38,6 @@ impl epi::App for FlexApp {
         self.conf_dialog.load(&mut self.log);
 
         plugin::get_list(&mut self.log);
-        let mut pl = plugin::Plugin::default();
-        self.plugin_tx = Some(pl.get_tx());
-        std::thread::spawn(move || {
-            pl.start_thread();
-        });
-        let src = plugin::Plugin::load_plugin(
-            self.plugin_tx.clone().unwrap(),
-            "vk".to_owned(),
-            &mut self.log,
-        );
-        self.plugin_tx
-            .clone()
-            .unwrap()
-            .send(plugin::PluginCommands::LOAD(src))
-            .unwrap();
 
         let mut font = egui::FontDefinitions::default();
 
