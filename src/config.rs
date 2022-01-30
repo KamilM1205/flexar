@@ -1,14 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub enum Website {
-    VK,
-    Instagram,
-    Twitter,
-    Other(String),
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub enum RegMethod {
     Phone,
     Email,
@@ -52,7 +44,7 @@ pub enum PostsFile {
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    pub website: Website,
+    pub website: Option<String>,
     pub proxy_use: bool,
     pub proxy_files: Vec<Proxy>,
     pub proxy_sel: Proxy,
@@ -78,7 +70,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            website: Website::VK,
+            website: None,
             proxy_use: false,
             proxy_files: vec![Proxy::None],
             proxy_sel: Proxy::None,

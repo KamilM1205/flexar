@@ -2,7 +2,7 @@ use crate::config::RegMethod;
 
 use eframe::egui::{self, Ui};
 use include_dir::DirEntry::{Dir, File};
-use mlua::{Lua, LuaOptions, StdLib};
+use mlua::{Lua, LuaOptions, StdLib, Function};
 
 use std::{
     io::{Read, Write},
@@ -21,108 +21,109 @@ struct Config {
     reg_methods: Vec<RegMethod>,
 }
 
-pub enum PluginCommands {
-    LOAD(String),
-    UI,
-    EXEC,
-    ERROR,
-    QUIT,
-}
-
 pub struct Plugin {
-    tx: Option<Sender<PluginCommands>>,
-    erx: Option<Receiver<String>>,
-    etx: Option<Sender<PluginCommands>>,
-}
-
-struct PluginThread {
-    tx: Option<Sender<PluginCommands>>,
-    etx: Option<Sender<String>>,
-}
-
-impl Default for Plugin {
-    fn default() -> Self {
-        Self {
-            tx: None,
-            erx: None,
-            etx: None,
-        }
-    }
+    name: String,
+    lua: Option<Lua>,
+    src: String,
 }
 
 impl Plugin {
-    pub fn run_thread(&mut self) {
-        let (tx, rx) = channel::<String>();
-        self.erx = Some(rx);
-        let mut thread = PluginThread::new();
-        
-        let (tx, rx) = channel::<PluginCommands>();
-        self.tx = Some(tx);
-        
-        std::thread::spawn(move || {
-            thread.run_thread(rx);
-        });
+    // Загрузка плагина и получение chunk'а для выполнения плагина
+    pub fn load(name: Option<String>, log: &mut String) -> Self {
+        let mut sname = String::new();
+        if let Some(n) = name {
+            sname = n
+        } else {
+            sname = "None".to_owned()
+        }
+
+        let lua = match Lua::new_with(
+            StdLib::MATH | StdLib::STRING | StdLib::UTF8 | StdLib::TABLE | StdLib::PACKAGE,
+            LuaOptions::default(),
+        ) {
+            Ok(lua) => lua,
+            Err(e) => {
+                log.push_str(&format!("{:?}\n", e));
+                return Self {
+                    name: sname,
+                    lua: None,
+                    src: String::new(),
+                }
+            }
+        };
+
+        let src = Plugin::load_plugin_file(&sname, log);
+
+        Plugin::call_load(&lua, &src, log);
+
+        Self { name: sname, lua: Some(lua), src }
     }
 
-    pub fn get_error(&self) -> String {
-        self.etx.unwrap().send(PluginCommands::ERROR).unwrap();
-        let error = self.erx.clone().unwrap().recv().unwrap();
-        error
-    }
-}
+    fn call_load(lua: &Lua, src: &String, log: &mut String) {
+        let chunk = lua.load(src);
 
-impl PluginThread {
-    pub fn new() -> Self {
-        Self {
-            tx: None,
-            etx: None,
+        match chunk.exec() {
+            Ok(_) => (),
+            Err(e) => log.push_str(&format!("{:?}\n", e))
+        };
+
+        let globals = lua.globals();
+
+        let load: Option<Function> = match globals.get("load") {
+            Ok(v) => Some(v),
+            Err(e) => {
+                log.push_str(&format!("{:?}\n", e));
+                None
+            }
+        };
+
+        match load {
+            Some(v) => v.call(()).unwrap(),
+            None => return,
         }
     }
 
-    fn load_plugin(&mut self, name: String) -> Result<String, std::io::Error> {
+    pub fn call_draw(&mut self, log: &mut String) {
+        let globals = self.lua.as_ref().unwrap().globals();
+
+        let draw: Option<Function> = match globals.get("draw") {
+            Ok(v) => Some(v),
+            Err(e) => {
+                log.push_str(&format!("{:?}\n", e));
+                None
+            }
+        };
+
+        match draw {
+            Some(v) => v.call(()).unwrap(),
+            None => return,
+        }
+    }
+
+    // Загрузка lua плагина из файла
+    fn load_plugin_file(name: &String, log: &mut String) -> String {
         let mut path = dirs::config_dir().unwrap();
-        path.push(name);
-        path.push("plugin.lua");
+        path.push(format!("{}/{}/{}", "flexar/plugins",  name, "plugin.lua"));
+
         let mut file = match std::fs::File::open(path) {
             Ok(f) => f,
-            Err(e) => return Err(e),
+            Err(e) => {
+                log.push_str(&format!("{:?}\n", e));
+                return String::new()
+            }
         };
 
         let mut src = String::new();
-
+        
         match file.read_to_string(&mut src) {
             Ok(_) => (),
-            Err(e) => return Err(e),
+            Err(e) => {
+                log.push_str(&format!("{:?}\n", e));
+                return String::new()
+            }
         };
 
-        Ok(src.clone())
-    }
-
-    pub fn run_thread(&mut self, rx: Receiver<PluginCommands>) {
-        let lua = Lua::new_with(
-            StdLib::MATH | StdLib::STRING | StdLib::TABLE | StdLib::UTF8 | StdLib::PACKAGE,
-            LuaOptions::default(),
-        ).unwrap();
-
-        match rx.recv() {
-            Ok(pc) => match pc {
-                PluginCommands::LOAD(name) => {
-                    let src = match self.load_plugin(name) {
-                        Ok(s) => s,
-                        Err(e) => String::new(),
-                    };
-                    lua.load(&src).exec().unwrap();
-                }
-                PluginCommands::UI => {}
-                PluginCommands::EXEC => {}
-                PluginCommands::QUIT => {}
-            },
-            Err(e) => panic!("{:?}", e),
-        }
-    }
-
-    pub fn get_tx(&self) -> Sender<PluginCommands> {
-        self.tx.clone().unwrap()
+        src
     }
 }
 
@@ -149,14 +150,14 @@ pub fn unpack_plugins(apath: &std::path::Path, ppath: &std::path::Path, log: &mu
                     match std::fs::File::create(path) {
                         Ok(mut f) => match write!(f, "{}", file.contents_utf8().unwrap()) {
                             Ok(_) => (),
-                            Err(e) => log.push_str(&format!("{:?}", e)),
+                            Err(e) => log.push_str(&format!("{:?}\n", e)),
                         },
-                        Err(e) => log.push_str(&format!("{:?}", e)),
+                        Err(e) => log.push_str(&format!("{:?}\n", e)),
                     }
                 } else {
                     match std::fs::write(path, file.contents_utf8().unwrap()) {
                         Ok(_) => (),
-                        Err(e) => log.push_str(&format!("{:?}", e)),
+                        Err(e) => log.push_str(&format!("{:?}\n", e)),
                     };
                 }
             }
@@ -166,7 +167,7 @@ pub fn unpack_plugins(apath: &std::path::Path, ppath: &std::path::Path, log: &mu
                 if !path.exists() {
                     match std::fs::create_dir(path) {
                         Ok(_) => (),
-                        Err(e) => log.push_str(&format!("{:?}", e)),
+                        Err(e) => log.push_str(&format!("{:?}\n", e)),
                     }
                 }
                 unpack_plugins(&apath, d.path(), log);
