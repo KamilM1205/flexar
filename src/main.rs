@@ -37,8 +37,6 @@ impl epi::App for FlexApp {
     ) {
         self.conf_dialog.load(&mut self.log);
 
-        plugin::get_list(&mut self.log);
-
         let mut font = egui::FontDefinitions::default();
 
         font.font_data.insert(
@@ -91,7 +89,7 @@ impl epi::App for FlexApp {
             ui.with_layout(
                 egui::Layout::top_down_justified(egui::Align::Center),
                 |ui| {
-                    ui.label("Coded with ❤ by MUTS");
+                    ui.label("Coded with ❤  by MUTS");
                 },
             );
         });
@@ -103,16 +101,28 @@ impl epi::App for FlexApp {
                     |ui| {
                         ui.heading("Flexar setup");
                         ui.horizontal(|ui| {
-                            ui.label("Website: ");
-                            egui::ComboBox::from_id_source("Website sel")
-                                .selected_text(format!("{:?}", self.config_file.website))
+                            ui.label("Plugin: ");
+                            let pname = if let Some(pname) = &self.config_file.website {
+                                pname
+                            } else {
+                                "None"
+                            };
+                            egui::ComboBox::from_id_source("Plugin sel")
+                                .selected_text(format!("{:?}", pname))
                                 .show_ui(ui, |ui| {
-                                    for name in plugin::get_list(&mut self.log) {
-                                        ui.selectable_value(
-                                            &mut self.config_file.website,
-                                            Some(name.clone()),
-                                            name,
-                                        );
+                                    let list = plugin::get_list(&mut self.log);
+                                    for name in list {
+                                        if ui
+                                            .add(egui::SelectableLabel::new(
+                                                self.config_file.website == Some(name.clone()),
+                                                name,
+                                            ))
+                                            .clicked()
+                                        {
+                                            if self.config_file.website != Some(name.clone()) {
+                                                self.plugin
+                                            }
+                                        }
                                     }
                                 });
                         });

@@ -2,7 +2,7 @@ use crate::config::RegMethod;
 
 use eframe::egui::{self, Ui};
 use include_dir::DirEntry::{Dir, File};
-use mlua::{Lua, LuaOptions, StdLib, Function};
+use mlua::{Function, Lua, LuaOptions, StdLib};
 
 use std::{
     io::{Read, Write},
@@ -48,7 +48,7 @@ impl Plugin {
                     name: sname,
                     lua: None,
                     src: String::new(),
-                }
+                };
             }
         };
 
@@ -56,7 +56,11 @@ impl Plugin {
 
         Plugin::call_load(&lua, &src, log);
 
-        Self { name: sname, lua: Some(lua), src }
+        Self {
+            name: sname,
+            lua: Some(lua),
+            src,
+        }
     }
 
     fn call_load(lua: &Lua, src: &String, log: &mut String) {
@@ -64,7 +68,7 @@ impl Plugin {
 
         match chunk.exec() {
             Ok(_) => (),
-            Err(e) => log.push_str(&format!("{:?}\n", e))
+            Err(e) => log.push_str(&format!("{:?}\n", e)),
         };
 
         let globals = lua.globals();
@@ -103,23 +107,23 @@ impl Plugin {
     // Загрузка lua плагина из файла
     fn load_plugin_file(name: &String, log: &mut String) -> String {
         let mut path = dirs::config_dir().unwrap();
-        path.push(format!("{}/{}/{}", "flexar/plugins",  name, "plugin.lua"));
+        path.push(format!("{}/{}/{}", "flexar/plugins", name, "plugin.lua"));
 
         let mut file = match std::fs::File::open(path) {
             Ok(f) => f,
             Err(e) => {
                 log.push_str(&format!("{:?}\n", e));
-                return String::new()
+                return String::new();
             }
         };
 
         let mut src = String::new();
-        
+
         match file.read_to_string(&mut src) {
             Ok(_) => (),
             Err(e) => {
                 log.push_str(&format!("{:?}\n", e));
-                return String::new()
+                return String::new();
             }
         };
 
