@@ -1,12 +1,13 @@
-use crate::config::RegMethod;
+use crate::{config::RegMethod, plugin_ui};
 
-use eframe::egui::{self, Ui};
+use eframe::egui::{self, CtxRef, Ui};
 use include_dir::DirEntry::{Dir, File};
-use mlua::{Function, Lua, LuaOptions, StdLib};
+use mlua::{Function, Lua, LuaOptions, StdLib, Variadic};
 
 use std::{
+    cell::RefCell,
     io::{Read, Write},
-    sync::mpsc::{channel, Receiver, Sender},
+    rc::Rc,
 };
 
 pub static PLUGINS: include_dir::Dir =
@@ -28,13 +29,23 @@ pub struct Plugin {
 }
 
 impl Plugin {
+    pub fn new() -> Self {
+        Self {
+            name: String::new(),
+            lua: None,
+            src: String::new(),
+        }
+    }
+
     // Загрузка плагина и получение chunk'а для выполнения плагина
-    pub fn load(name: Option<String>, log: &mut String) -> Self {
-        let mut sname = String::new();
+    pub fn load(&mut self, name: Option<String>, log: &mut String, lua_log: Rc<RefCell<String>>) {
+        let sname;
         if let Some(n) = name {
             sname = n
         } else {
-            sname = "None".to_owned()
+            self.lua = None;
+            sname = "None".to_owned();
+            return;
         }
 
         let lua = match Lua::new_with(
@@ -44,27 +55,48 @@ impl Plugin {
             Ok(lua) => lua,
             Err(e) => {
                 log.push_str(&format!("{:?}\n", e));
-                return Self {
-                    name: sname,
-                    lua: None,
-                    src: String::new(),
-                };
+                return;
             }
         };
 
         let src = Plugin::load_plugin_file(&sname, log);
 
-        Plugin::call_load(&lua, &src, log);
+        self.name = sname;
+        self.lua = Some(lua);
+        self.src = src;
 
-        Self {
-            name: sname,
-            lua: Some(lua),
-            src,
-        }
+        self.setup_base(lua_log, log);
+        self.call_load(log);
     }
 
-    fn call_load(lua: &Lua, src: &String, log: &mut String) {
-        let chunk = lua.load(src);
+    fn setup_base(&mut self, lua_log: Rc<RefCell<String>>, log: &mut String) {
+        let lua = self.lua.as_ref().unwrap();
+        let globals = lua.globals();
+
+        let lua_print = match lua.create_function(move |_, strings: Variadic<String>| {
+            *lua_log.borrow_mut() = format!(
+                "{}{}\n",
+                *lua_log.borrow(),
+                strings.iter().fold(String::new(), |a, b| a + b)
+            );
+            Ok(())
+        }) {
+            Ok(f) => f,
+            Err(e) => {
+                log.push_str(&format!("{:?}", e));
+                return;
+            }
+        };
+
+        match globals.set("print", lua_print) {
+            Ok(_) => (),
+            Err(e) => log.push_str(&format!("{:?}", e)),
+        };
+    }
+
+    fn call_load(&mut self, log: &mut String) {
+        let lua = self.lua.as_ref().unwrap();
+        let chunk = lua.load(&self.src);
 
         match chunk.exec() {
             Ok(_) => (),
@@ -87,7 +119,15 @@ impl Plugin {
         }
     }
 
-    pub fn call_draw(&mut self, log: &mut String) {
+    pub fn call_draw(
+        &mut self,
+        ctx: CtxRef,
+        lua_log: Rc<RefCell<String>>,
+        log: &mut String,
+    ) -> Result<(), ()> {
+        if let None = self.lua {
+            return Ok(());
+        }
         let globals = self.lua.as_ref().unwrap().globals();
 
         let draw: Option<Function> = match globals.get("draw") {
@@ -98,9 +138,16 @@ impl Plugin {
             }
         };
 
+        let pui = plugin_ui::PluginUI::new(ctx, lua_log.clone());
         match draw {
-            Some(v) => v.call(()).unwrap(),
-            None => return,
+            Some(v) => match v.call::<plugin_ui::PluginUI, ()>(pui) {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    log.push_str(&format!("{:?}", e));
+                    Err(())
+                }
+            },
+            None => return Ok(()),
         }
     }
 

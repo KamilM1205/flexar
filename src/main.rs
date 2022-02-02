@@ -1,8 +1,11 @@
+use std::{cell::RefCell, rc::Rc};
+
 use eframe::{egui, epi};
 
 mod config;
 mod dialogs;
 mod plugin;
+mod plugin_ui;
 
 struct FlexApp {
     about_w: bool,
@@ -10,6 +13,7 @@ struct FlexApp {
     config_file: config::Config,
     reg_count: u32,
     log: String,
+    lua_plugin: plugin::Plugin,
 }
 
 impl Default for FlexApp {
@@ -20,6 +24,7 @@ impl Default for FlexApp {
             config_file: config::Config::default(),
             reg_count: 0,
             log: String::from("Welcome to the FlexAR!\n"),
+            lua_plugin: plugin::Plugin::new(),
         }
     }
 }
@@ -57,6 +62,8 @@ impl epi::App for FlexApp {
     }
 
     fn update(&mut self, ctx: &egui::CtxRef, frame: &epi::Frame) {
+        let lua_log: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -84,7 +91,67 @@ impl epi::App for FlexApp {
                     self.about_w = true;
                 }
             });
+            ui.with_layout(
+                egui::Layout::top_down_justified(egui::Align::Center),
+                |ui| {
+                    ui.heading("Flexar setup");
+                    ui.horizontal(|ui| {
+                        ui.label("Plugin: ");
+                        let pname = if let Some(pname) = &self.config_file.website {
+                            pname
+                        } else {
+                            "None"
+                        };
+                        egui::ComboBox::from_id_source("Plugin sel")
+                            .selected_text(format!("{:?}", pname))
+                            .show_ui(ui, |ui| {
+                                let list = plugin::get_list(&mut self.log);
+                                for name in list {
+                                    if ui
+                                        .add(egui::SelectableLabel::new(
+                                            self.config_file.website == Some(name.clone()),
+                                            &name,
+                                        ))
+                                        .clicked()
+                                    {
+                                        self.config_file.website = Some(name.clone());
+                                        self.lua_plugin.load(
+                                            self.config_file.website.clone(),
+                                            &mut self.log,
+                                            lua_log.clone(),
+                                        );
+                                    }
+                                }
+                            });
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Number of accounts: ");
+                        ui.add(egui::DragValue::new(&mut self.config_file.reg_num));
+                    });
+
+                    ui.label(format!("Registered: {}", self.reg_count));
+
+                    egui::ScrollArea::vertical()
+                        .max_height(120.)
+                        .show(ui, |ui| {
+                            ui.add_enabled(false, egui::TextEdit::multiline(&mut self.log));
+                        });
+
+                    ui.add(egui::Button::new("Start"));
+                    ui.add(egui::Button::new("Stop"));
+                },
+            );
         });
+
+        match self
+            .lua_plugin
+            .call_draw(ctx.clone(), lua_log.clone(), &mut self.log)
+        {
+            Ok(_) => (),
+            Err(_) => self.lua_plugin.load(None, &mut self.log, lua_log.clone()),
+        };
+
         egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
             ui.with_layout(
                 egui::Layout::top_down_justified(egui::Align::Center),
@@ -94,58 +161,8 @@ impl epi::App for FlexApp {
             );
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.with_layout(
-                    egui::Layout::top_down_justified(egui::Align::Center),
-                    |ui| {
-                        ui.heading("Flexar setup");
-                        ui.horizontal(|ui| {
-                            ui.label("Plugin: ");
-                            let pname = if let Some(pname) = &self.config_file.website {
-                                pname
-                            } else {
-                                "None"
-                            };
-                            egui::ComboBox::from_id_source("Plugin sel")
-                                .selected_text(format!("{:?}", pname))
-                                .show_ui(ui, |ui| {
-                                    let list = plugin::get_list(&mut self.log);
-                                    for name in list {
-                                        if ui
-                                            .add(egui::SelectableLabel::new(
-                                                self.config_file.website == Some(name.clone()),
-                                                name,
-                                            ))
-                                            .clicked()
-                                        {
-                                            if self.config_file.website != Some(name.clone()) {
-                                                self.plugin
-                                            }
-                                        }
-                                    }
-                                });
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("Number of accounts: ");
-                            ui.add(egui::DragValue::new(&mut self.config_file.reg_num));
-                        });
-
-                        ui.label(format!("Registered: {}", self.reg_count));
-
-                        egui::ScrollArea::vertical()
-                            .max_height(120.)
-                            .show(ui, |ui| {
-                                ui.add_enabled(false, egui::TextEdit::multiline(&mut self.log));
-                            });
-
-                        ui.add(egui::Button::new("Start"));
-                        ui.add(egui::Button::new("Stop"));
-                    },
-                );
-            });
-        });
+        self.log.push_str(&format!("{}", lua_log.borrow()));
+        *lua_log.borrow_mut() = String::new();
 
         if self.about_w {
             dialogs::about(ctx, &mut self.about_w);
@@ -153,6 +170,11 @@ impl epi::App for FlexApp {
         let open = self.conf_dialog.show_open(ctx, &mut self.log);
         if let Some(c) = open {
             self.config_file = c;
+            self.lua_plugin.load(
+                self.config_file.website.clone(),
+                &mut self.log,
+                lua_log.clone(),
+            );
         }
         self.conf_dialog
             .show_save(ctx, &mut self.config_file, &mut self.log);
