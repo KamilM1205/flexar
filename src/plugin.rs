@@ -1,6 +1,6 @@
 use crate::{config::RegMethod, plugin_ui};
 
-use eframe::egui::{self, CtxRef, Ui};
+use eframe::egui::CtxRef;
 use include_dir::DirEntry::{Dir, File};
 use mlua::{Function, Lua, LuaOptions, StdLib, Variadic};
 
@@ -24,7 +24,7 @@ struct Config {
 
 pub struct Plugin {
     name: String,
-    lua: Option<Lua>,
+    lua: Option<&'static Lua>,
     src: String,
 }
 
@@ -52,7 +52,7 @@ impl Plugin {
             StdLib::MATH | StdLib::STRING | StdLib::UTF8 | StdLib::TABLE | StdLib::PACKAGE,
             LuaOptions::default(),
         ) {
-            Ok(lua) => lua,
+            Ok(lua) => lua.into_static(),
             Err(e) => {
                 log.push_str(&format!("{:?}\n", e));
                 return;
@@ -96,6 +96,7 @@ impl Plugin {
 
     fn call_load(&mut self, log: &mut String) {
         let lua = self.lua.as_ref().unwrap();
+        println!("{}", &self.src);
         let chunk = lua.load(&self.src);
 
         match chunk.exec() {
@@ -114,7 +115,9 @@ impl Plugin {
         };
 
         match load {
-            Some(v) => v.call(()).unwrap(),
+            Some(v) => v.call(()).unwrap_or_else(|e| {
+                log.push_str(&format!("{:?}\n", e));
+            }),
             None => return,
         }
     }
@@ -122,7 +125,7 @@ impl Plugin {
     pub fn call_draw(
         &mut self,
         ctx: CtxRef,
-        lua_log: Rc<RefCell<String>>,
+        lua_log: &Rc<RefCell<String>>,
         log: &mut String,
     ) -> Result<(), ()> {
         if let None = self.lua {
@@ -138,7 +141,7 @@ impl Plugin {
             }
         };
 
-        let pui = plugin_ui::PluginUI::new(ctx, lua_log.clone());
+        let pui = plugin_ui::PluginUI::new(ctx, self.lua.as_ref().unwrap(), lua_log.clone());
         match draw {
             Some(v) => match v.call::<plugin_ui::PluginUI, ()>(pui) {
                 Ok(_) => Ok(()),

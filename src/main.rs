@@ -14,6 +14,7 @@ struct FlexApp {
     reg_count: u32,
     log: String,
     lua_plugin: plugin::Plugin,
+    lua_log: Rc<RefCell<String>>,
 }
 
 impl Default for FlexApp {
@@ -25,6 +26,7 @@ impl Default for FlexApp {
             reg_count: 0,
             log: String::from("Welcome to the FlexAR!\n"),
             lua_plugin: plugin::Plugin::new(),
+            lua_log: Rc::new(RefCell::new(String::new())),
         }
     }
 }
@@ -62,7 +64,20 @@ impl epi::App for FlexApp {
     }
 
     fn update(&mut self, ctx: &egui::CtxRef, frame: &epi::Frame) {
-        let lua_log: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
+        if self.about_w {
+            dialogs::about(ctx, &mut self.about_w);
+        }
+        let open = self.conf_dialog.show_open(ctx, &mut self.log);
+        if let Some(c) = open {
+            self.config_file = c;
+            self.lua_plugin.load(
+                self.config_file.website.clone(),
+                &mut self.log,
+                self.lua_log.clone(),
+            );
+        }
+        self.conf_dialog
+            .show_save(ctx, &mut self.config_file, &mut self.log);
 
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
@@ -118,7 +133,7 @@ impl epi::App for FlexApp {
                                         self.lua_plugin.load(
                                             self.config_file.website.clone(),
                                             &mut self.log,
-                                            lua_log.clone(),
+                                            self.lua_log.clone(),
                                         );
                                     }
                                 }
@@ -146,10 +161,12 @@ impl epi::App for FlexApp {
 
         match self
             .lua_plugin
-            .call_draw(ctx.clone(), lua_log.clone(), &mut self.log)
+            .call_draw(ctx.clone(), &self.lua_log, &mut self.log)
         {
             Ok(_) => (),
-            Err(_) => self.lua_plugin.load(None, &mut self.log, lua_log.clone()),
+            Err(_) => self
+                .lua_plugin
+                .load(None, &mut self.log, self.lua_log.clone()),
         };
 
         egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
@@ -161,23 +178,8 @@ impl epi::App for FlexApp {
             );
         });
 
-        self.log.push_str(&format!("{}", lua_log.borrow()));
-        *lua_log.borrow_mut() = String::new();
-
-        if self.about_w {
-            dialogs::about(ctx, &mut self.about_w);
-        }
-        let open = self.conf_dialog.show_open(ctx, &mut self.log);
-        if let Some(c) = open {
-            self.config_file = c;
-            self.lua_plugin.load(
-                self.config_file.website.clone(),
-                &mut self.log,
-                lua_log.clone(),
-            );
-        }
-        self.conf_dialog
-            .show_save(ctx, &mut self.config_file, &mut self.log);
+        self.log.push_str(&format!("{}", self.lua_log.borrow()));
+        *self.lua_log.borrow_mut() = String::new();
     }
 }
 
